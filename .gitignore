@@ -7,6 +7,10 @@ src-tauri/target/
 .DS_Store
 Thumbs.db
 data/archive/
+data/source-files/
 *.db
 *.db-shm
 *.db-wal
+.chrome-pdf/
+rustup-init.exe
+docs/ui-check.png
