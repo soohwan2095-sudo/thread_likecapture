@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Thread LikeCapture User Guide</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+        background: linear-gradient(180deg, #efe7db 0%, #e6ecef 100%);
+        color: #18202a;
+      }
+
+      main {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 40px 28px 64px;
+        background: rgba(255, 253, 249, 0.95);
+        min-height: 100vh;
+      }
+
+      h1,
+      h2,
+      h3 {
+        margin-top: 0;
+      }
+
+      h1 {
+        font-size: 36px;
+      }
+
+      h2 {
+        margin-top: 28px;
+        font-size: 24px;
+      }
+
+      p,
+      li {
+        line-height: 1.75;
+        font-size: 15px;
+      }
+
+      .hero {
+        padding: 24px;
+        border-radius: 24px;
+        background: linear-gradient(135deg, #f3d6ba 0%, #eef1ea 100%);
+        border: 1px solid rgba(24, 32, 42, 0.08);
+      }
+
+      .card {
+        margin-top: 16px;
+        padding: 18px 20px;
+        border-radius: 20px;
+        background: #fffaf4;
+        border: 1px solid rgba(24, 32, 42, 0.08);
+      }
+
+      code,
+      pre {
+        font-family: Consolas, "Courier New", monospace;
+      }
+
+      pre {
+        padding: 14px;
+        border-radius: 16px;
+        background: #1c232d;
+        color: #edf3f8;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="hero">
+        <h1>Thread LikeCapture User Guide</h1>
+        <p>
+          This document matches the current single-screen batch workflow:
+          choose a source folder, choose a Gemini preset, define categories,
+          optionally enter a session-only Gemini API key, then press Start.
+        </p>
+        <p>
+          The Korean PDF guide is the primary manual:
+          <code>docs\사용방법_안내.pdf</code>
+        </p>
+      </div>
+
+      <section class="card">
+        <h2>Current Workflow</h2>
+        <ol>
+          <li>Run <code>startup.bat</code>.</li>
+          <li>Put source files into <code>data\source-files</code>.</li>
+          <li>Choose a Gemini preset on the main screen.</li>
+          <li>Enter categories such as <code>경제, 바이브코딩, 기타</code>.</li>
+          <li>Enter a Gemini API key only if you want live analysis.</li>
+          <li>Press <code>시작</code>.</li>
+          <li>Review output PDFs in the archive category folders.</li>
+        </ol>
+      </section>
+
+      <section class="card">
+        <h2>Folder Layout</h2>
+        <pre>D:\HPCodes\thread_likecapture
+├─ data
+│  ├─ source-files
+│  └─ archive
+│     ├─ 경제
+│     ├─ 바이브코딩
+│     ├─ 기타
+│     └─ meta
+└─ docs</pre>
+      </section>
+
+      <section class="card">
+        <h2>Security Notes</h2>
+        <ul>
+          <li>The Gemini API key is session-only in the UI.</li>
+          <li>The app does not automate browser login or control your Google account.</li>
+          <li>The app only sends the files you selected for Gemini analysis.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

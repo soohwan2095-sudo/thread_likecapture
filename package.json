@@ -1,0 +1,29 @@
+{
+  "name": "thread-likecapture",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config app/vite.config.ts",
+    "build": "vite build --config app/vite.config.ts",
+    "preview": "vite preview --config app/vite.config.ts",
+    "tauri:dev": "tauri dev",
+    "tauri:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tauri-check.ps1",
+    "tauri:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tauri-build.ps1"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.0.0",
+    "pdf-lib": "1.17.1",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "zod": "3.23.8"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.0.0",
+    "@types/react": "18.2.66",
+    "@types/react-dom": "18.2.22",
+    "@vitejs/plugin-react": "4.2.1",
+    "typescript": "5.4.5",
+    "vite": "5.2.8"
+  }
+}
