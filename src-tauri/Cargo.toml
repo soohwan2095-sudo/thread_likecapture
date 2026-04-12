@@ -1,8 +1,8 @@
 [package]
-name = "thread-likecapture"
+name = "content-summary-analyzer"
 version = "0.1.0"
-description = "Personal Threads capture and archive desktop app"
-authors = ["thread_likecapture"]
+description = "Personal document summary and analysis desktop app"
+authors = ["content_summary_analyzer"]
 edition = "2021"
 
 [build-dependencies]

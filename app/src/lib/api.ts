@@ -30,13 +30,15 @@ export async function runBatch(
   folderPath: string,
   categories: string[],
   model: string,
-  apiKey: string
+  apiKey: string,
+  selectedFilePaths: string[] = []
 ) {
   return invoke<BatchRunResult>("run_batch", {
     folderPath,
     categories,
     model,
-    apiKey
+    apiKey,
+    selectedFilePaths
   });
 }
 
@@ -50,6 +52,10 @@ export async function saveGeneratedArtifacts(
     markdown,
     pdfBase64
   });
+}
+
+export async function readFileBase64(path: string) {
+  return invoke<string>("read_file_base64", { path });
 }
 
 export async function listJobs(query = "", category?: string) {

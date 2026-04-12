@@ -16,7 +16,7 @@ foreach ($folder in $folders) {
   New-Item -ItemType Directory -Force -Path $folder | Out-Null
 }
 
-$exePath = Join-Path $root "src-tauri\target\debug\thread-likecapture.exe"
+$exePath = Join-Path $root "src-tauri\target\debug\content-summary-analyzer.exe"
 if (Test-Path $exePath) {
   Start-Process -FilePath $exePath
   exit 0

@@ -24,9 +24,15 @@ impl Database {
     pub fn new(root_dir: PathBuf) -> Result<Self, AppError> {
         let data_dir = root_dir.join("data");
         fs::create_dir_all(data_dir.join("archive"))?;
+        let db_path = data_dir.join("content_summary_analyzer.db");
+        let legacy_db_path = data_dir.join("thread_likecapture.db");
+        if !db_path.exists() && legacy_db_path.exists() {
+            fs::rename(&legacy_db_path, &db_path)?;
+        }
+
         Ok(Self {
             root_dir,
-            db_path: data_dir.join("thread_likecapture.db"),
+            db_path,
         })
     }
 
@@ -228,11 +234,7 @@ impl Database {
         self.ensure_archive_dirs(&archive_root)?;
         fs::create_dir_all(archive_root.join(&category))?;
 
-        let base_name = format!(
-            "{}_{}",
-            Utc::now().format("%Y-%m-%d_%H-%M-%S"),
-            slugify(&job.title)
-        );
+        let base_name = unique_content_file_stem(&archive_root, &category, &job);
         let markdown_path = archive_root.join("meta").join(format!("{}.md", base_name));
         let meta_path = archive_root.join("meta").join(format!("{}.json", base_name));
         let output_pdf_path = archive_root.join(&category).join(format!("{}.pdf", base_name));
@@ -441,25 +443,52 @@ fn sanitize_category_folder(value: &str) -> String {
         .collect::<String>()
 }
 
-fn slugify(value: &str) -> String {
-    let cleaned = value
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() {
-                character.to_ascii_lowercase()
-            } else if character.is_whitespace() || character == '-' || character == '_' {
-                '-'
+fn unique_content_file_stem(archive_root: &Path, category: &str, job: &JobDetail) -> String {
+    let desired = compact_korean_file_stem(job);
+    for index in 1..1000 {
+        let candidate = if index == 1 {
+            desired.clone()
+        } else {
+            let suffix = index.to_string();
+            let limit = 12usize.saturating_sub(suffix.chars().count()).max(1);
+            format!("{}{}", take_chars(&desired, limit), suffix)
+        };
+
+        let pdf_path = archive_root.join(category).join(format!("{}.pdf", candidate));
+        let markdown_path = archive_root.join("meta").join(format!("{}.md", candidate));
+        let meta_path = archive_root.join("meta").join(format!("{}.json", candidate));
+        if !pdf_path.exists() && !markdown_path.exists() && !meta_path.exists() {
+            return candidate;
+        }
+    }
+
+    format!("{}{}", take_chars(&desired, 8), Utc::now().timestamp() % 10000)
+}
+
+fn compact_korean_file_stem(job: &JobDetail) -> String {
+    [&job.title, &job.one_line_summary, &strip_extension(&job.raw_file_name)]
+        .iter()
+        .find_map(|value| {
+            let compact = value
+                .chars()
+                .filter(|character| is_korean(*character))
+                .take(12)
+                .collect::<String>();
+            if compact.is_empty() {
+                None
             } else {
-                '-'
+                Some(compact)
             }
         })
-        .collect::<String>();
-    let trimmed = cleaned.trim_matches('-').to_string();
-    if trimmed.is_empty() {
-        Uuid::new_v4().to_string()
-    } else {
-        trimmed
-    }
+        .unwrap_or_else(|| "\u{C694}\u{C57D}\u{ACB0}\u{ACFC}".to_string())
+}
+
+fn is_korean(character: char) -> bool {
+    matches!(character, '\u{AC00}'..='\u{D7A3}' | '\u{3131}'..='\u{318E}')
+}
+
+fn take_chars(value: &str, limit: usize) -> String {
+    value.chars().take(limit).collect()
 }
 
 fn strip_extension(value: &str) -> String {

@@ -29,6 +29,7 @@ fn main() {
             commands::create_category_folders,
             commands::run_batch,
             commands::save_generated_artifacts,
+            commands::read_file_base64,
             commands::list_jobs,
             commands::get_job_detail,
             commands::open_path

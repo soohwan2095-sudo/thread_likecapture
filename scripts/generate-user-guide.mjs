@@ -8,11 +8,11 @@ const docsDir = path.join(root, "docs");
 const fontPath = "C:\\Windows\\Fonts\\malgun.ttf";
 const boldFontPath = "C:\\Windows\\Fonts\\malgunbd.ttf";
 const outputPdf = path.join(docsDir, "사용방법_안내.pdf");
-const outputPdfAscii = path.join(docsDir, "thread-likecapture_user-guide.pdf");
+const outputPdfAscii = path.join(docsDir, "content-summary-analyzer_user-guide.pdf");
 
 const K = {
   title: "\uC0AC\uC6A9\uBC29\uBC95 \uC548\uB0B4",
-  program: "\uC4F0\uB808\uB4DC \uAE00 \uC694\uC57D&\uBD84\uC11D\uAE30",
+  program: "\uAE00 \uC694\uC57D \uBD84\uC11D\uAE30",
   created: "\uBB38\uC11C \uC0DD\uC131\uC77C: 2026-04-04"
 };
 
@@ -30,7 +30,7 @@ const sections = [
       "startup.bat \uC2E4\uD589",
       "\uC6D0\uBCF8 \uD30C\uC77C\uC744 source-files \uD3F4\uB354\uC5D0 \uB123\uAE30",
       "\uD654\uBA74\uC5D0\uC11C \uC6D0\uBCF8 \uD3F4\uB354 \uACBD\uB85C \uD655\uC778",
-      "Gemini 2.0 Free \uB610\uB294 Gemini 3.0 Free Preview \uC120\uD0DD",
+      "Gemini 2.5 Flash Lite \uB610\uB294 Gemini 3.1 Flash Lite Preview \uC120\uD0DD",
       "\uCE74\uD14C\uACE0\uB9AC \uAC12 \uC785\uB825 \uD6C4 \uC0DD\uC131 \uBC84\uD2BC \uC2E4\uD589",
       "\uD654\uBA74 \uC624\uB978\uCABD Gemini API Key \uCE78\uC5D0 \uD544\uC694 \uC2DC \uD0A4 \uC785\uB825",
       "\uC2DC\uC791 \uBC84\uD2BC \uD074\uB9AD",
@@ -69,11 +69,11 @@ const sections = [
   {
     title: "\uC6D0\uBCF8 \uD3F4\uB354 \uC4F0\uB294 \uBC29\uBC95",
     code: [
-      "D:\\HPCodes\\thread_likecapture\\data\\source-files",
-      "\u251C\u2500 thread_001.pdf",
-      "\u251C\u2500 thread_002.png",
-      "\u251C\u2500 thread_003.jpg",
-      "\u2514\u2500 thread_004.pdf"
+      "D:\\HPCodes\\content_summary_analyzer\\data\\source-files",
+      "\u251C\u2500 content_001.pdf",
+      "\u251C\u2500 content_002.png",
+      "\u251C\u2500 content_003.jpg",
+      "\u2514\u2500 content_004.pdf"
     ],
     bullets: [
       "\uD06C\uB86C \uB610\uB294 GoFullPage \uB2E4\uC6B4\uB85C\uB4DC \uACBD\uB85C\uB97C source-files \uB85C \uB9DE\uCD94\uBA74 \uAC00\uC7A5 \uD3B8\uD569\uB2C8\uB2E4.",
@@ -111,7 +111,7 @@ const sections = [
   {
     title: "\uACB0\uACFC \uD30C\uC77C \uC800\uC7A5 \uC704\uCE58",
     code: [
-      "D:\\HPCodes\\thread_likecapture\\data\\archive",
+      "D:\\HPCodes\\content_summary_analyzer\\data\\archive",
       "\u251C\u2500 \uACBD\uC81C",
       "\u251C\u2500 \uBC14\uC774\uBE0C\uCF54\uB529",
       "\u251C\u2500 \uAE30\uD0C0",
@@ -312,7 +312,7 @@ page.drawRectangle({
   color: rgb(0.95, 0.89, 0.84)
 });
 
-drawTextBlock("Thread LikeCapture", {
+drawTextBlock("\uAE00 \uC694\uC57D \uBD84\uC11D\uAE30", {
   font: boldFont,
   size: 11,
   color: rgb(0.55, 0.29, 0.18)

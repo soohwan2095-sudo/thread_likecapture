@@ -6,6 +6,7 @@ import {
   listSourceFiles,
   loadSettings,
   openPath,
+  readFileBase64,
   runBatch,
   saveGeneratedArtifacts,
   saveSettings
@@ -21,8 +22,8 @@ import {
 } from "../types/models";
 
 const defaultSettings: AppSettings = {
-  sourceFolder: "D:\\HPCodes\\thread_likecapture\\data\\source-files",
-  archiveFolder: "D:\\HPCodes\\thread_likecapture\\data\\archive",
+  sourceFolder: "D:\\HPCodes\\content_summary_analyzer\\data\\source-files",
+  archiveFolder: "D:\\HPCodes\\content_summary_analyzer\\data\\archive",
   categoriesText: "경제, 바이브코딩, 기타",
   geminiModel: "gemini-2.5-flash-lite",
   pollIntervalMs: 3000,
@@ -31,21 +32,21 @@ const defaultSettings: AppSettings = {
 
 const modelOptions = [
   {
-    label: "Gemini 2.0 Free",
+    label: "Gemini 2.5 Flash Lite",
     model: "gemini-2.5-flash-lite",
-    note: "안정형 무료 모델"
+    note: "안정적인 무료 경량 모델"
   },
   {
-    label: "Gemini 3.0 Free Preview",
+    label: "Gemini 3.1 Flash Lite Preview",
     model: "gemini-3.1-flash-lite-preview",
-    note: "최신형 무료 프리뷰"
+    note: "최신 무료 프리뷰 모델"
   }
 ] as const;
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [sessionApiKey, setSessionApiKey] = useState("");
-  const [statusMessage, setStatusMessage] = useState("프로그램을 준비 중입니다.");
+  const [statusMessage, setStatusMessage] = useState("프로그램을 준비하고 있습니다.");
   const [sourceFiles, setSourceFiles] = useState<SourceFileItem[]>([]);
   const [recentJobs, setRecentJobs] = useState<JobListItem[]>([]);
   const [selectedJob, setSelectedJob] = useState<JobDetail | null>(null);
@@ -53,6 +54,7 @@ export function App() {
   const [creatingFolders, setCreatingFolders] = useState(false);
   const [runningBatch, setRunningBatch] = useState(false);
   const [runSummary, setRunSummary] = useState<BatchRunResult | null>(null);
+  const [selectedSourcePaths, setSelectedSourcePaths] = useState<string[]>([]);
   const autoRunLockRef = useRef(false);
 
   const categories = useMemo(
@@ -64,6 +66,14 @@ export function App() {
       modelOptions.find((option) => option.model === settings.geminiModel)?.note ??
       "사용자 지정 모델",
     [settings.geminiModel]
+  );
+  const selectedSourcePathSet = useMemo(
+    () => new Set(selectedSourcePaths),
+    [selectedSourcePaths]
+  );
+  const newSourceFiles = useMemo(
+    () => sourceFiles.filter((file) => file.status === "new"),
+    [sourceFiles]
   );
 
   useEffect(() => {
@@ -110,6 +120,8 @@ export function App() {
     startTransition(() => {
       setSourceFiles(files);
     });
+    const newFilePaths = new Set(files.filter((file) => file.status === "new").map((file) => file.path));
+    setSelectedSourcePaths((current) => current.filter((path) => newFilePaths.has(path)));
     return files;
   }
 
@@ -130,7 +142,7 @@ export function App() {
       const hasNewFiles = files.some((file) => file.status === "new");
       if (hasNewFiles) {
         autoRunLockRef.current = true;
-        setStatusMessage("새 다운로드 파일을 감지해 자동 실행을 시작합니다.");
+        setStatusMessage("새 파일을 감지했습니다. 자동 실행을 시작합니다.");
         await handleStartBatch(true);
       }
     } catch (error) {
@@ -162,14 +174,14 @@ export function App() {
       setStatusMessage(
         created.length > 0
           ? `카테고리 폴더를 만들었습니다: ${created.join(", ")}`
-          : "만들 카테고리 폴더가 없습니다."
+          : "새로 만들 카테고리 폴더가 없습니다."
       );
     } finally {
       setCreatingFolders(false);
     }
   }
 
-  async function handleStartBatch(fromAutoRun = false) {
+  async function handleStartBatch(fromAutoRun = false, selectedFilePaths: string[] = []) {
     if (!settings.sourceFolder.trim()) {
       setStatusMessage("원본 폴더 경로를 먼저 입력하세요.");
       return;
@@ -191,7 +203,8 @@ export function App() {
         saved.sourceFolder,
         categories,
         saved.geminiModel,
-        sessionApiKey
+        sessionApiKey,
+        selectedFilePaths
       );
 
       for (const job of result.processedJobs) {
@@ -200,8 +213,13 @@ export function App() {
         }
 
         const markdown = buildMarkdownReport(job, job.analysis);
-        const pdfBase64 = await buildPdfBase64(job, job.analysis);
+        const sourceFileBase64 = await readFileBase64(job.sourcePdfPath);
+        const pdfBase64 = await buildPdfBase64(job, job.analysis, sourceFileBase64);
         await saveGeneratedArtifacts(job.id, markdown, pdfBase64);
+      }
+
+      if (selectedFilePaths.length > 0) {
+        setSelectedSourcePaths([]);
       }
 
       setRunSummary(result);
@@ -214,8 +232,8 @@ export function App() {
 
       setStatusMessage(
         result.processedCount === 0 && result.skippedCount > 0
-          ? "새로 처리할 파일이 없고, 기존 파일은 전부 스킵되었습니다."
-          : `${fromAutoRun ? "자동 실행" : "작업 완료"}: 신규 ${result.processedCount}건, 스킵 ${result.skippedCount}건, 실패 ${result.failedCount}건`
+          ? "새로 처리할 파일이 없고, 기존 파일은 이미 건너뛰었습니다."
+          : `${fromAutoRun ? "자동 실행" : "작업 완료"}: 신규 ${result.processedCount}건, 건너뜀 ${result.skippedCount}건, 실패 ${result.failedCount}건`
       );
     } catch (error) {
       console.error(error);
@@ -230,15 +248,28 @@ export function App() {
     setSelectedJob(detail);
   }
 
+  function handleToggleSourceFile(path: string, checked: boolean) {
+    setSelectedSourcePaths((current) => {
+      if (checked) {
+        return current.includes(path) ? current : [...current, path];
+      }
+      return current.filter((item) => item !== path);
+    });
+  }
+
+  function handleSelectAllNewFiles() {
+    setSelectedSourcePaths(newSourceFiles.map((file) => file.path));
+  }
+
   return (
     <div className="app-shell">
       <section className="hero-strip">
         <div className="hero-copy">
-          <p className="eyebrow">Thread LikeCapture</p>
-          <h1>Thread 글 요약&분석기</h1>
+          <p className="eyebrow">글 요약 분석기</p>
+          <h1>글 요약 & 분석기</h1>
           <p className="hero-text">
-            쓰레드 캡처 파일을 한 폴더에 넣고 시작 버튼만 누르면, Gemini가
-            요약·분석하고 카테고리별 결과 PDF로 정리합니다.
+            글 캡처 파일을 원본 폴더에 넣고 시작 버튼을 누르면 Gemini가 요약하고 분석한 뒤
+            카테고리별 결과 PDF로 정리합니다.
           </p>
         </div>
         <div className="hero-badge">
@@ -275,7 +306,7 @@ export function App() {
                 onChange={(event) =>
                   setSettings((current) => ({ ...current, sourceFolder: event.target.value }))
                 }
-                placeholder="D:\\your-folder\\thread-captures"
+                placeholder="D:\\your-folder\\content-captures"
               />
             </label>
 
@@ -286,7 +317,7 @@ export function App() {
                 onChange={(event) =>
                   setSettings((current) => ({ ...current, archiveFolder: event.target.value }))
                 }
-                placeholder="D:\\your-folder\\thread-archive"
+                placeholder="D:\\your-folder\\content-archive"
               />
             </label>
           </article>
@@ -295,7 +326,7 @@ export function App() {
             <div className="section-head">
               <div>
                 <p className="eyebrow">02</p>
-                <h2>AI 종류</h2>
+                <h2>AI 모델</h2>
               </div>
               <span className="hint-chip">{modelNote}</span>
             </div>
@@ -331,7 +362,7 @@ export function App() {
             </div>
 
             <label className="field">
-              <span>카테고리 전체값 (쉼표 또는 줄바꿈 구분)</span>
+              <span>카테고리 전체값(쉼표 또는 줄바꿈 구분)</span>
               <textarea
                 rows={4}
                 value={settings.categoriesText}
@@ -373,12 +404,11 @@ export function App() {
             </label>
 
             <p className="security-note">
-              이 입력값은 이번 실행에서만 사용합니다. 브라우저 자동화, 구글 계정
-              로그인 제어, 쿠키 수집은 하지 않습니다.
+              이 입력값은 이번 실행에서만 사용합니다. 브라우저 자동화, 구글 계정 로그인 제어,
+              쿠키 수집은 하지 않습니다.
             </p>
             <p className="security-note">
-              Gemini API 키는 여기에 입력하면 됩니다. 비워두면 데모 모드로만
-              동작합니다.
+              Gemini API 키는 여기에 입력하면 됩니다. 비워두면 데모 모드로만 동작합니다.
             </p>
           </article>
 
@@ -404,12 +434,12 @@ export function App() {
             </div>
 
             <p className="security-note">
-              켜두면 원본 폴더에 새 파일이 들어올 때마다 자동으로 배치 실행을
-              시도합니다. 끄면 지금처럼 시작 버튼으로만 돌릴 수 있습니다.
+              켜두면 원본 폴더에 새 파일이 들어올 때마다 자동으로 배치 실행을 시도합니다. 끄면
+              직접 시작 버튼을 눌러 실행할 수 있습니다.
             </p>
 
             <label className="field">
-              <span>폴링 주기(ms)</span>
+              <span>감시 주기(ms)</span>
               <input
                 type="number"
                 min={1000}
@@ -429,7 +459,7 @@ export function App() {
             <div>
               <p className="eyebrow">Batch Run</p>
               <h2>폴더 안의 파일을 한 번에 처리</h2>
-              <p>이미 처리 기록이 있는 파일은 다음 실행에서 자동으로 스킵합니다.</p>
+              <p>이미 처리 기록이 있는 파일은 다음 실행에서 자동으로 건너뜁니다.</p>
             </div>
             <button
               className="launch-button"
@@ -461,7 +491,7 @@ export function App() {
                 </div>
                 <div className="summary-card">
                   <strong>{runSummary.skippedCount}</strong>
-                  <span>스킵</span>
+                  <span>건너뜀</span>
                 </div>
                 <div className="summary-card">
                   <strong>{runSummary.failedCount}</strong>
@@ -477,19 +507,51 @@ export function App() {
                 <p className="eyebrow">Source Files</p>
                 <h2>원본 폴더 파일 목록</h2>
               </div>
-              <span className="count-chip">{sourceFiles.length} files</span>
+              <div className="inline-actions">
+                <span className="count-chip">{sourceFiles.length} files</span>
+                <span className="count-chip">{selectedSourcePaths.length} selected</span>
+                <button
+                  onClick={handleSelectAllNewFiles}
+                  disabled={runningBatch || newSourceFiles.length === 0}
+                >
+                  새 파일 선택
+                </button>
+                <button
+                  onClick={() => setSelectedSourcePaths([])}
+                  disabled={runningBatch || selectedSourcePaths.length === 0}
+                >
+                  선택 해제
+                </button>
+                <button
+                  className="primary"
+                  onClick={() => void handleStartBatch(false, selectedSourcePaths)}
+                  disabled={runningBatch || selectedSourcePaths.length === 0}
+                >
+                  선택 분석
+                </button>
+              </div>
             </div>
 
             <div className="file-list">
               {sourceFiles.map((file) => (
                 <div key={file.path} className="file-row">
-                  <div>
-                    <strong>{file.fileName}</strong>
-                    <small>
-                      {formatStatus(file.status)}
-                      {file.category ? ` / ${file.category}` : ""}
-                    </small>
-                  </div>
+                  <label className="file-select">
+                    <input
+                      type="checkbox"
+                      checked={selectedSourcePathSet.has(file.path)}
+                      disabled={runningBatch || file.status !== "new"}
+                      onChange={(event) =>
+                        handleToggleSourceFile(file.path, event.currentTarget.checked)
+                      }
+                    />
+                    <span>
+                      <strong>{file.fileName}</strong>
+                      <small>
+                        {formatStatus(file.status)}
+                        {file.category ? ` / ${file.category}` : ""}
+                      </small>
+                    </span>
+                  </label>
 
                   <div className="inline-actions">
                     {file.outputPdfPath ? (
@@ -504,7 +566,7 @@ export function App() {
 
               {sourceFiles.length === 0 ? (
                 <p className="empty-state">
-                  원본 폴더 안에 아직 지원 파일이 없습니다.
+                  원본 폴더 안에 아직 지원되는 파일이 없습니다.
                 </p>
               ) : null}
             </div>

@@ -1,5 +1,5 @@
 @font-face {
-  font-family: "ThreadLikeCaptureUI";
+  font-family: "ContentSummaryAnalyzerUI";
   src: url("../assets/malgun.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
@@ -12,7 +12,7 @@
     radial-gradient(circle at top left, rgba(245, 187, 146, 0.28), transparent 32%),
     radial-gradient(circle at top right, rgba(160, 202, 214, 0.25), transparent 28%),
     linear-gradient(160deg, #f6f0e8 0%, #ebf0ee 56%, #e4ece6 100%);
-  font-family: "ThreadLikeCaptureUI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  font-family: "ContentSummaryAnalyzerUI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   line-height: 1.5;
   font-weight: 400;
 }
@@ -160,6 +160,11 @@ button:hover {
 
 .section-head {
   justify-content: space-between;
+}
+
+.section-head .inline-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .section-head h2,
@@ -418,6 +423,24 @@ button:disabled {
   border-radius: 18px;
   background: #fffaf5;
   border: 1px solid rgba(17, 32, 42, 0.08);
+}
+
+.file-select {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.file-select input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  accent-color: #bf4d2c;
+}
+
+.file-select span {
+  min-width: 0;
 }
 
 .file-row strong,

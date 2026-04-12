@@ -14,7 +14,8 @@ const META_COLOR = rgb(0.28, 0.33, 0.39);
 
 export async function buildPdfBase64(
   job: JobDetail,
-  analysis: AnalysisResult
+  analysis: AnalysisResult,
+  sourceFileBase64?: string
 ): Promise<string> {
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
@@ -102,8 +103,12 @@ export async function buildPdfBase64(
   drawBulletSection("\uC778\uC0AC\uC774\uD2B8", analysis.insights);
   drawBulletSection("\uBD88\uD655\uC2E4\uD55C \uBD80\uBD84", analysis.uncertaintyNotes);
 
+  if (sourceFileBase64) {
+    await appendSourceFile(pdf, sourceFileBase64, job.sourcePdfPath, regularFont);
+  }
+
   const bytes = await pdf.save();
-  return arrayBufferToBase64(bytes.buffer as ArrayBuffer);
+  return bytesToBase64(bytes);
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
@@ -131,8 +136,58 @@ function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
   return lines;
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
+async function appendSourceFile(
+  pdf: PDFDocument,
+  sourceFileBase64: string,
+  sourcePath: string,
+  regularFont: PDFFont
+) {
+  const sourceBytes = base64ToBytes(sourceFileBase64);
+  const extension = sourcePath.split(".").pop()?.toLowerCase();
+
+  if (extension === "pdf") {
+    const sourcePdf = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+    const copiedPages = await pdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
+    for (const copiedPage of copiedPages) {
+      pdf.addPage(copiedPage);
+    }
+    return;
+  }
+
+  const page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+  const image =
+    extension === "png" ? await pdf.embedPng(sourceBytes) : await pdf.embedJpg(sourceBytes);
+  const maxWidth = PAGE_WIDTH - MARGIN_X * 2;
+  const maxHeight = PAGE_HEIGHT - 110;
+  const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+  const width = image.width * scale;
+  const height = image.height * scale;
+
+  page.drawText("\uC6D0\uBCF8 \uD30C\uC77C", {
+    x: MARGIN_X,
+    y: PAGE_HEIGHT - 48,
+    size: 15,
+    font: regularFont,
+    color: BODY_COLOR
+  });
+  page.drawImage(image, {
+    x: (PAGE_WIDTH - width) / 2,
+    y: PAGE_HEIGHT - 80 - height,
+    width,
+    height
+  });
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
 
   for (const byte of bytes) {

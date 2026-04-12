@@ -78,7 +78,7 @@ fn build_prompt(categories: &[String]) -> String {
         .join("|");
 
     format!(
-        "You are analyzing a local personal archive file made from Threads screenshots. \
+        "You are analyzing a local personal archive file. \
 Return JSON only. No markdown fences, no prose outside JSON. \
 Write all natural-language fields in Korean. \
 The category field must be exactly one of these values: {category_list}. \

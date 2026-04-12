@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::{collections::HashSet, fs, path::Path, process::Command};
 
 use base64::Engine;
 use tauri::State;
@@ -73,9 +73,19 @@ pub async fn run_batch(
     categories: Vec<String>,
     model: String,
     api_key: String,
+    selected_file_paths: Vec<String>,
 ) -> Result<BatchRunResult, String> {
     let normalized_categories = normalize_categories(&categories);
-    let files = scan_source_folder(&folder_path).map_err(to_message)?;
+    let selected_paths = selected_file_paths
+        .into_iter()
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty())
+        .collect::<HashSet<_>>();
+    let files = scan_source_folder(&folder_path)
+        .map_err(to_message)?
+        .into_iter()
+        .filter(|file| selected_paths.is_empty() || selected_paths.contains(&file.path))
+        .collect::<Vec<_>>();
 
     let mut processed_jobs = Vec::new();
     let mut skipped_count = 0usize;
@@ -86,7 +96,8 @@ pub async fn run_batch(
             .database
             .get_source_file_state(&file.path)
             .map_err(to_message)?
-            .is_some()
+            .and_then(|item| item.output_pdf_path)
+            .is_some_and(|path| Path::new(&path).exists())
         {
             skipped_count += 1;
             continue;
@@ -156,6 +167,12 @@ pub fn save_generated_artifacts(
         .database
         .save_generated_artifacts(&job_id, &markdown, &bytes)
         .map_err(to_message)
+}
+
+#[tauri::command]
+pub fn read_file_base64(path: String) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|error| error.to_string())?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 #[tauri::command]

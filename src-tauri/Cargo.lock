@@ -355,6 +355,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "content-summary-analyzer"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "image",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "thiserror 1.0.69",
+ "uuid",
+ "walkdir",
+]
+
+[[package]]
 name = "convert_case"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3992,24 +4010,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "thread-likecapture"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "image",
- "reqwest 0.12.28",
- "rusqlite",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "thiserror 1.0.69",
- "uuid",
- "walkdir",
 ]
 
 [[package]]
