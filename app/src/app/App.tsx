@@ -1,11 +1,10 @@
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import {
-  createCategoryFolders,
-  getJobDetail,
-  listJobs,
+  deleteJobHistory,
   listSourceFiles,
   loadSettings,
   openPath,
+  quitApp,
   readFileBase64,
   runBatch,
   saveGeneratedArtifacts,
@@ -13,13 +12,7 @@ import {
 } from "../lib/api";
 import { buildMarkdownReport } from "../lib/markdown";
 import { buildPdfBase64 } from "../lib/pdf";
-import {
-  AppSettings,
-  BatchRunResult,
-  JobDetail,
-  JobListItem,
-  SourceFileItem
-} from "../types/models";
+import { AppSettings, BatchRunResult, SourceFileItem } from "../types/models";
 
 const defaultSettings: AppSettings = {
   sourceFolder: "D:\\HPCodes\\content_summary_analyzer\\data\\source-files",
@@ -30,83 +23,47 @@ const defaultSettings: AppSettings = {
   autoRunEnabled: false
 };
 
-const modelOptions = [
-  {
-    label: "Gemini 2.5 Flash Lite",
-    model: "gemini-2.5-flash-lite",
-    note: "안정적인 무료 경량 모델"
-  },
-  {
-    label: "Gemini 3.1 Flash Lite Preview",
-    model: "gemini-3.1-flash-lite-preview",
-    note: "최신 무료 프리뷰 모델"
-  }
-] as const;
-
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [sessionApiKey, setSessionApiKey] = useState("");
   const [statusMessage, setStatusMessage] = useState("프로그램을 준비하고 있습니다.");
   const [sourceFiles, setSourceFiles] = useState<SourceFileItem[]>([]);
-  const [recentJobs, setRecentJobs] = useState<JobListItem[]>([]);
-  const [selectedJob, setSelectedJob] = useState<JobDetail | null>(null);
-  const [savingSettingsState, setSavingSettingsState] = useState(false);
-  const [creatingFolders, setCreatingFolders] = useState(false);
   const [runningBatch, setRunningBatch] = useState(false);
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
   const [runSummary, setRunSummary] = useState<BatchRunResult | null>(null);
-  const [selectedSourcePaths, setSelectedSourcePaths] = useState<string[]>([]);
-  const autoRunLockRef = useRef(false);
 
   const categories = useMemo(
     () => parseCategories(settings.categoriesText),
     [settings.categoriesText]
   );
-  const modelNote = useMemo(
-    () =>
-      modelOptions.find((option) => option.model === settings.geminiModel)?.note ??
-      "사용자 지정 모델",
-    [settings.geminiModel]
-  );
-  const selectedSourcePathSet = useMemo(
-    () => new Set(selectedSourcePaths),
-    [selectedSourcePaths]
-  );
-  const newSourceFiles = useMemo(
-    () => sourceFiles.filter((file) => file.status === "new"),
-    [sourceFiles]
-  );
+
+  const counts = useMemo(() => {
+    return sourceFiles.reduce(
+      (acc, file) => {
+        acc.total += 1;
+        if (file.status === "new") acc.new += 1;
+        if (file.status === "processing") acc.processing += 1;
+        if (file.status === "processed") acc.processed += 1;
+        if (file.status === "failed") acc.failed += 1;
+        return acc;
+      },
+      { total: 0, new: 0, processing: 0, processed: 0, failed: 0 }
+    );
+  }, [sourceFiles]);
 
   useEffect(() => {
     void bootstrap();
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      void pollSourceFiles();
-    }, Math.max(1000, settings.pollIntervalMs));
-
-    void pollSourceFiles();
-    return () => window.clearInterval(timer);
-  }, [
-    settings.sourceFolder,
-    settings.archiveFolder,
-    settings.categoriesText,
-    settings.geminiModel,
-    settings.pollIntervalMs,
-    settings.autoRunEnabled,
-    sessionApiKey,
-    runningBatch
-  ]);
-
   async function bootstrap() {
     try {
       const loaded = await loadSettings();
       setSettings(loaded);
-      await Promise.all([refreshSourceFiles(loaded.sourceFolder), refreshRecentJobs()]);
-      setStatusMessage("준비 완료. 원본 폴더를 확인하고 시작할 수 있습니다.");
+      await refreshSourceFiles(loaded.sourceFolder);
+      setStatusMessage("준비 완료. 파일 하나를 변환하거나 폴더 전체를 변환하세요.");
     } catch (error) {
       console.error(error);
-      setStatusMessage("설정을 불러오지 못했습니다.");
+      setStatusMessage("설정을 불러오지 못했습니다. Tauri 앱으로 실행 중인지 확인하세요.");
     }
   }
 
@@ -120,81 +77,36 @@ export function App() {
     startTransition(() => {
       setSourceFiles(files);
     });
-    const newFilePaths = new Set(files.filter((file) => file.status === "new").map((file) => file.path));
-    setSelectedSourcePaths((current) => current.filter((path) => newFilePaths.has(path)));
     return files;
   }
 
-  async function refreshRecentJobs() {
-    const jobs = await listJobs("");
-    startTransition(() => {
-      setRecentJobs(jobs.slice(0, 8));
-    });
+  async function handleRunAll() {
+    await runFiles([]);
   }
 
-  async function pollSourceFiles() {
-    try {
-      const files = await refreshSourceFiles();
-      if (!settings.autoRunEnabled || runningBatch || autoRunLockRef.current) {
-        return;
-      }
-
-      const hasNewFiles = files.some((file) => file.status === "new");
-      if (hasNewFiles) {
-        autoRunLockRef.current = true;
-        setStatusMessage("새 파일을 감지했습니다. 자동 실행을 시작합니다.");
-        await handleStartBatch(true);
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      autoRunLockRef.current = false;
-    }
+  async function handleRunSingle(file: SourceFileItem) {
+    await runFiles([file.path]);
   }
 
-  async function handleApplyFolders() {
-    try {
-      setSavingSettingsState(true);
-      const saved = await saveSettings(settings);
-      setSettings(saved);
-      await Promise.all([refreshSourceFiles(saved.sourceFolder), refreshRecentJobs()]);
-      setStatusMessage("경로와 기본 설정을 저장했습니다.");
-    } finally {
-      setSavingSettingsState(false);
-    }
-  }
-
-  async function handleCreateCategoryFolders() {
-    try {
-      setCreatingFolders(true);
-      const saved = await saveSettings(settings);
-      setSettings(saved);
-      const created = await createCategoryFolders(saved.archiveFolder, categories);
-
-      setStatusMessage(
-        created.length > 0
-          ? `카테고리 폴더를 만들었습니다: ${created.join(", ")}`
-          : "새로 만들 카테고리 폴더가 없습니다."
-      );
-    } finally {
-      setCreatingFolders(false);
-    }
-  }
-
-  async function handleStartBatch(fromAutoRun = false, selectedFilePaths: string[] = []) {
+  async function runFiles(selectedFilePaths: string[]) {
     if (!settings.sourceFolder.trim()) {
-      setStatusMessage("원본 폴더 경로를 먼저 입력하세요.");
+      setStatusMessage("원본 폴더 경로가 비어 있습니다.");
       return;
     }
 
     if (categories.length === 0) {
-      setStatusMessage("카테고리를 하나 이상 입력하세요.");
+      setStatusMessage("카테고리가 비어 있습니다. 고급 설정에서 카테고리를 입력하세요.");
       return;
     }
 
     try {
       setRunningBatch(true);
-      setSelectedJob(null);
+      setActiveFilePath(selectedFilePaths[0] ?? null);
+      setStatusMessage(
+        selectedFilePaths.length === 1
+          ? "선택한 파일을 변환하고 있습니다."
+          : "폴더 안의 파일을 변환하고 있습니다."
+      );
 
       const saved = await saveSettings(settings);
       setSettings(saved);
@@ -218,445 +130,240 @@ export function App() {
         await saveGeneratedArtifacts(job.id, markdown, pdfBase64);
       }
 
-      if (selectedFilePaths.length > 0) {
-        setSelectedSourcePaths([]);
-      }
-
       setRunSummary(result);
-      await Promise.all([refreshSourceFiles(saved.sourceFolder), refreshRecentJobs()]);
-
-      if (result.processedJobs.length > 0) {
-        const latest = await getJobDetail(result.processedJobs[0].id);
-        setSelectedJob(latest);
-      }
-
+      await refreshSourceFiles(saved.sourceFolder);
       setStatusMessage(
-        result.processedCount === 0 && result.skippedCount > 0
-          ? "새로 처리할 파일이 없고, 기존 파일은 이미 건너뛰었습니다."
-          : `${fromAutoRun ? "자동 실행" : "작업 완료"}: 신규 ${result.processedCount}건, 건너뜀 ${result.skippedCount}건, 실패 ${result.failedCount}건`
+        `완료: 변환 ${result.processedCount}개, 건너뜀 ${result.skippedCount}개, 실패 ${result.failedCount}개`
       );
     } catch (error) {
       console.error(error);
-      setStatusMessage("배치 실행 중 오류가 발생했습니다.");
+      setStatusMessage("변환 중 오류가 발생했습니다. 파일 행의 상태와 콘솔 로그를 확인하세요.");
     } finally {
       setRunningBatch(false);
+      setActiveFilePath(null);
     }
   }
 
-  async function handleOpenJob(jobId: string) {
-    const detail = await getJobDetail(jobId);
-    setSelectedJob(detail);
+  async function handleDeleteHistory(file: SourceFileItem) {
+    if (!file.jobId) {
+      setStatusMessage("삭제할 변환 이력이 없습니다.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      "이 파일의 변환 이력을 삭제할까요?\n삭제 후 다시 변환할 수 있습니다. 기존 결과 파일은 삭제하지 않습니다."
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await deleteJobHistory(file.jobId);
+      await refreshSourceFiles();
+      setStatusMessage(`${file.fileName} 변환 이력을 삭제했습니다. 다시 변환할 수 있습니다.`);
+    } catch (error) {
+      console.error(error);
+      setStatusMessage("변환 이력을 삭제하지 못했습니다.");
+    }
   }
 
-  function handleToggleSourceFile(path: string, checked: boolean) {
-    setSelectedSourcePaths((current) => {
-      if (checked) {
-        return current.includes(path) ? current : [...current, path];
-      }
-      return current.filter((item) => item !== path);
-    });
-  }
+  async function handleQuitApp() {
+    const confirmed = runningBatch
+      ? window.confirm("변환이 진행 중입니다. 그래도 프로그램을 종료할까요?")
+      : window.confirm("프로그램을 종료할까요?");
 
-  function handleSelectAllNewFiles() {
-    setSelectedSourcePaths(newSourceFiles.map((file) => file.path));
+    if (!confirmed) {
+      return;
+    }
+
+    await quitApp();
   }
 
   return (
-    <div className="app-shell">
-      <section className="hero-strip">
-        <div className="hero-copy">
-          <p className="eyebrow">글 요약 분석기</p>
-          <h1>글 요약 & 분석기</h1>
-          <p className="hero-text">
-            글 캡처 파일을 원본 폴더에 넣고 시작 버튼을 누르면 Gemini가 요약하고 분석한 뒤
-            카테고리별 결과 PDF로 정리합니다.
+    <main className="app-shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">Content Summary Analyzer</p>
+          <h1>글 요약 분석기</h1>
+          <p className="intro">
+            원본 폴더에 파일을 넣고, API key를 입력한 뒤 하나씩 변환하거나 폴더 전체를
+            변환합니다.
           </p>
         </div>
-        <div className="hero-badge">
-          <strong>현재 모델</strong>
-          <span>{settings.geminiModel}</span>
-          <small>{modelNote}</small>
+        <div className="topbar-actions">
+          <div className="mode-chip">{sessionApiKey.trim() ? "Gemini 실제 분석" : "데모 모드"}</div>
+          <button className="danger" onClick={() => void handleQuitApp()}>
+            프로그램 종료
+          </button>
+        </div>
+      </header>
+
+      <section className="control-strip" aria-label="실행 설정">
+        <label className="api-field">
+          <span>Gemini API Key</span>
+          <input
+            type="password"
+            value={sessionApiKey}
+            onChange={(event) => setSessionApiKey(event.target.value)}
+            placeholder="AIza..."
+          />
+          <small>비워두면 데모 결과로 변환됩니다.</small>
+        </label>
+
+        <div className="quick-actions">
+          <button className="primary" onClick={() => void handleRunAll()} disabled={runningBatch}>
+            {runningBatch && activeFilePath === null ? "변환 중" : "폴더 전체 변환"}
+          </button>
+          <button onClick={() => void refreshSourceFiles()} disabled={runningBatch}>
+            새로고침
+          </button>
+          <button onClick={() => void openPath(settings.sourceFolder)}>원본 폴더 열기</button>
+          <button onClick={() => void openPath(settings.archiveFolder)}>결과 폴더 열기</button>
         </div>
       </section>
 
-      <section className="workspace">
-        <div className="control-panel">
-          <article className="panel section-card">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">01</p>
-                <h2>원본 폴더</h2>
-              </div>
-              <div className="inline-actions">
-                <button onClick={() => void openPath(settings.sourceFolder)}>폴더 열기</button>
-                <button
-                  className="primary"
-                  onClick={() => void handleApplyFolders()}
-                  disabled={savingSettingsState}
-                >
-                  {savingSettingsState ? "적용 중..." : "경로 적용"}
-                </button>
-              </div>
-            </div>
+      <section className="status-strip" aria-live="polite">
+        <span>전체 {counts.total}</span>
+        <span>미변환 {counts.new}</span>
+        <span>변환 중 {counts.processing}</span>
+        <span>완료 {counts.processed}</span>
+        <span>실패 {counts.failed}</span>
+      </section>
 
-            <label className="field">
-              <span>원본 파일 경로</span>
-              <input
-                value={settings.sourceFolder}
-                onChange={(event) =>
-                  setSettings((current) => ({ ...current, sourceFolder: event.target.value }))
-                }
-                placeholder="D:\\your-folder\\content-captures"
-              />
-            </label>
-
-            <label className="field">
-              <span>결과 저장 경로</span>
-              <input
-                value={settings.archiveFolder}
-                onChange={(event) =>
-                  setSettings((current) => ({ ...current, archiveFolder: event.target.value }))
-                }
-                placeholder="D:\\your-folder\\content-archive"
-              />
-            </label>
-          </article>
-
-          <article className="panel section-card">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">02</p>
-                <h2>AI 모델</h2>
-              </div>
-              <span className="hint-chip">{modelNote}</span>
-            </div>
-
-            <div className="model-grid">
-              {modelOptions.map((option) => (
-                <button
-                  key={option.model}
-                  className={
-                    settings.geminiModel === option.model ? "model-card active" : "model-card"
-                  }
-                  onClick={() =>
-                    setSettings((current) => ({ ...current, geminiModel: option.model }))
-                  }
-                >
-                  <strong>{option.label}</strong>
-                  <small>{option.model}</small>
-                  <span>{option.note}</span>
-                </button>
-              ))}
-            </div>
-          </article>
-
-          <article className="panel section-card">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">03</p>
-                <h2>카테고리 생성</h2>
-              </div>
-              <button onClick={() => void handleCreateCategoryFolders()} disabled={creatingFolders}>
-                {creatingFolders ? "생성 중..." : "생성 버튼"}
-              </button>
-            </div>
-
-            <label className="field">
-              <span>카테고리 전체값(쉼표 또는 줄바꿈 구분)</span>
-              <textarea
-                rows={4}
-                value={settings.categoriesText}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    categoriesText: event.target.value
-                  }))
-                }
-                placeholder="경제, 바이브코딩, 기타"
-              />
-            </label>
-
-            <div className="tag-cloud">
-              {categories.map((category) => (
-                <span key={category} className="tag-pill">
-                  {category}
-                </span>
-              ))}
-            </div>
-          </article>
-
-          <article className="panel section-card security-card">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">보안 설정</p>
-                <h2>Gemini API Key</h2>
-              </div>
-            </div>
-
-            <label className="field">
-              <span>세션 전용 API 키 입력</span>
-              <input
-                type="password"
-                value={sessionApiKey}
-                onChange={(event) => setSessionApiKey(event.target.value)}
-                placeholder="AIza..."
-              />
-            </label>
-
-            <p className="security-note">
-              이 입력값은 이번 실행에서만 사용합니다. 브라우저 자동화, 구글 계정 로그인 제어,
-              쿠키 수집은 하지 않습니다.
+      <section className="file-workbench" aria-label="파일 목록">
+        <div className="section-head">
+          <div>
+            <h2>파일 목록</h2>
+            <p>{statusMessage}</p>
+          </div>
+          {runSummary ? (
+            <p className="run-summary">
+              마지막 실행: 변환 {runSummary.processedCount}, 건너뜀 {runSummary.skippedCount},
+              실패 {runSummary.failedCount}
             </p>
-            <p className="security-note">
-              Gemini API 키는 여기에 입력하면 됩니다. 비워두면 데모 모드로만 동작합니다.
-            </p>
-          </article>
+          ) : null}
+        </div>
 
-          <article className="panel auto-panel">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">Auto Run</p>
-                <h2>새 다운로드 파일 자동 실행</h2>
-              </div>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  checked={settings.autoRunEnabled}
-                  onChange={(event) =>
-                    setSettings((current) => ({
-                      ...current,
-                      autoRunEnabled: event.target.checked
-                    }))
-                  }
-                />
-                <span className="slider" />
-              </label>
-            </div>
+        <div className="file-table" role="table" aria-label="원본 파일 변환 목록">
+          <div className="file-table-head" role="row">
+            <span>파일명</span>
+            <span>상태</span>
+            <span>카테고리</span>
+            <span>작업</span>
+          </div>
 
-            <p className="security-note">
-              켜두면 원본 폴더에 새 파일이 들어올 때마다 자동으로 배치 실행을 시도합니다. 끄면
-              직접 시작 버튼을 눌러 실행할 수 있습니다.
-            </p>
-
-            <label className="field">
-              <span>감시 주기(ms)</span>
-              <input
-                type="number"
-                min={1000}
-                step={500}
-                value={settings.pollIntervalMs}
-                onChange={(event) =>
-                  setSettings((current) => ({
-                    ...current,
-                    pollIntervalMs: Number(event.target.value) || 3000
-                  }))
-                }
-              />
-            </label>
-          </article>
-
-          <article className="panel action-band">
-            <div>
-              <p className="eyebrow">Batch Run</p>
-              <h2>폴더 안의 파일을 한 번에 처리</h2>
-              <p>이미 처리 기록이 있는 파일은 다음 실행에서 자동으로 건너뜁니다.</p>
-            </div>
-            <button
-              className="launch-button"
-              onClick={() => void handleStartBatch()}
+          {sourceFiles.map((file) => (
+            <FileRow
+              key={file.path}
+              file={file}
               disabled={runningBatch}
-            >
-              {runningBatch ? "분석 중..." : "시작"}
-            </button>
-          </article>
-        </div>
+              isActive={activeFilePath === file.path}
+              onRun={() => void handleRunSingle(file)}
+              onOpenSource={() => void openPath(file.path)}
+              onOpenResult={() => void openPath(file.outputPdfPath)}
+              onDeleteHistory={() => void handleDeleteHistory(file)}
+            />
+          ))}
 
-        <div className="preview-panel">
-          <article className="panel status-panel">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">Run Status</p>
-                <h2>현재 상태</h2>
-              </div>
-              <button onClick={() => void refreshSourceFiles()}>파일 새로고침</button>
+          {sourceFiles.length === 0 ? (
+            <div className="empty-state">
+              원본 폴더에 아직 지원 파일이 없습니다. PDF, PNG, JPG, JPEG 파일을 넣고 새로고침을
+              누르세요.
             </div>
-
-            <p className="status-message">{statusMessage}</p>
-
-            {runSummary ? (
-              <div className="summary-grid">
-                <div className="summary-card">
-                  <strong>{runSummary.processedCount}</strong>
-                  <span>신규 처리</span>
-                </div>
-                <div className="summary-card">
-                  <strong>{runSummary.skippedCount}</strong>
-                  <span>건너뜀</span>
-                </div>
-                <div className="summary-card">
-                  <strong>{runSummary.failedCount}</strong>
-                  <span>실패</span>
-                </div>
-              </div>
-            ) : null}
-          </article>
-
-          <article className="panel files-panel">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">Source Files</p>
-                <h2>원본 폴더 파일 목록</h2>
-              </div>
-              <div className="inline-actions">
-                <span className="count-chip">{sourceFiles.length} files</span>
-                <span className="count-chip">{selectedSourcePaths.length} selected</span>
-                <button
-                  onClick={handleSelectAllNewFiles}
-                  disabled={runningBatch || newSourceFiles.length === 0}
-                >
-                  새 파일 선택
-                </button>
-                <button
-                  onClick={() => setSelectedSourcePaths([])}
-                  disabled={runningBatch || selectedSourcePaths.length === 0}
-                >
-                  선택 해제
-                </button>
-                <button
-                  className="primary"
-                  onClick={() => void handleStartBatch(false, selectedSourcePaths)}
-                  disabled={runningBatch || selectedSourcePaths.length === 0}
-                >
-                  선택 분석
-                </button>
-              </div>
-            </div>
-
-            <div className="file-list">
-              {sourceFiles.map((file) => (
-                <div key={file.path} className="file-row">
-                  <label className="file-select">
-                    <input
-                      type="checkbox"
-                      checked={selectedSourcePathSet.has(file.path)}
-                      disabled={runningBatch || file.status !== "new"}
-                      onChange={(event) =>
-                        handleToggleSourceFile(file.path, event.currentTarget.checked)
-                      }
-                    />
-                    <span>
-                      <strong>{file.fileName}</strong>
-                      <small>
-                        {formatStatus(file.status)}
-                        {file.category ? ` / ${file.category}` : ""}
-                      </small>
-                    </span>
-                  </label>
-
-                  <div className="inline-actions">
-                    {file.outputPdfPath ? (
-                      <button onClick={() => void openPath(file.outputPdfPath)}>
-                        결과 열기
-                      </button>
-                    ) : null}
-                    <button onClick={() => void openPath(file.path)}>원본 열기</button>
-                  </div>
-                </div>
-              ))}
-
-              {sourceFiles.length === 0 ? (
-                <p className="empty-state">
-                  원본 폴더 안에 아직 지원되는 파일이 없습니다.
-                </p>
-              ) : null}
-            </div>
-          </article>
-
-          <article className="panel recent-panel">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">Recent Output</p>
-                <h2>최근 결과</h2>
-              </div>
-            </div>
-
-            <div className="recent-grid">
-              {recentJobs.map((job) => (
-                <button
-                  key={job.id}
-                  className="recent-card"
-                  onClick={() => void handleOpenJob(job.id)}
-                >
-                  <strong>{job.title}</strong>
-                  <small>{job.category ?? "미분류"}</small>
-                  <span>{job.oneLineSummary || "요약 없음"}</span>
-                </button>
-              ))}
-
-              {recentJobs.length === 0 ? (
-                <p className="empty-state">아직 생성된 결과가 없습니다.</p>
-              ) : null}
-            </div>
-          </article>
-
-          <article className="panel detail-panel">
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">Result Detail</p>
-                <h2>선택한 결과</h2>
-              </div>
-
-              {selectedJob ? (
-                <div className="inline-actions">
-                  <button onClick={() => void openPath(selectedJob.sourcePdfPath)}>원본</button>
-                  <button onClick={() => void openPath(selectedJob.outputPdfPath)}>
-                    결과 PDF
-                  </button>
-                </div>
-              ) : null}
-            </div>
-
-            {selectedJob?.analysis ? (
-              <div className="detail-stack">
-                <div className="detail-hero">
-                  <p className="eyebrow">Category</p>
-                  <h3>{selectedJob.analysis.category}</h3>
-                  <p>{selectedJob.analysis.oneLineSummary}</p>
-                </div>
-
-                <div className="detail-copy">
-                  <h4>상세 해설</h4>
-                  <p>{selectedJob.analysis.detailedExplanation}</p>
-                </div>
-
-                <div className="detail-columns">
-                  <div>
-                    <h4>핵심 포인트</h4>
-                    <ul>
-                      {selectedJob.analysis.keyPoints.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-
-                  <div>
-                    <h4>인사이트</h4>
-                    <ul>
-                      {selectedJob.analysis.insights.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <p className="empty-state">
-                최근 결과 카드 하나를 눌러 상세 내용을 보세요.
-              </p>
-            )}
-          </article>
+          ) : null}
         </div>
       </section>
+
+      <details className="advanced-settings">
+        <summary>고급 설정</summary>
+        <div className="advanced-grid">
+          <label className="field">
+            <span>원본 폴더</span>
+            <input
+              value={settings.sourceFolder}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, sourceFolder: event.target.value }))
+              }
+            />
+          </label>
+          <label className="field">
+            <span>결과 폴더</span>
+            <input
+              value={settings.archiveFolder}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, archiveFolder: event.target.value }))
+              }
+            />
+          </label>
+          <label className="field">
+            <span>카테고리</span>
+            <input
+              value={settings.categoriesText}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, categoriesText: event.target.value }))
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Gemini 모델</span>
+            <input
+              value={settings.geminiModel}
+              onChange={(event) =>
+                setSettings((current) => ({ ...current, geminiModel: event.target.value }))
+              }
+            />
+          </label>
+        </div>
+      </details>
+    </main>
+  );
+}
+
+type FileRowProps = {
+  file: SourceFileItem;
+  disabled: boolean;
+  isActive: boolean;
+  onRun: () => void;
+  onOpenSource: () => void;
+  onOpenResult: () => void;
+  onDeleteHistory: () => void;
+};
+
+function FileRow({
+  file,
+  disabled,
+  isActive,
+  onRun,
+  onOpenSource,
+  onOpenResult,
+  onDeleteHistory
+}: FileRowProps) {
+  const canRun = file.status === "new" || file.status === "failed";
+  const isProcessed = file.status === "processed";
+
+  return (
+    <div className={isActive ? "file-row active" : "file-row"} role="row">
+      <div className="file-main">
+        <strong title={file.fileName}>{file.fileName}</strong>
+        <small title={file.path}>{file.path}</small>
+        {file.errorMessage ? <em>{file.errorMessage}</em> : null}
+      </div>
+      <span className={`status-pill ${file.status}`}>{isActive ? "변환 중" : formatStatus(file.status)}</span>
+      <span className="category-text">{file.category ?? "-"}</span>
+      <div className="row-actions">
+        {canRun ? (
+          <button className="primary" onClick={onRun} disabled={disabled}>
+            {file.status === "failed" ? "다시변환" : "변환"}
+          </button>
+        ) : null}
+        {isProcessed && file.outputPdfPath ? <button onClick={onOpenResult}>결과열기</button> : null}
+        <button onClick={onOpenSource}>원본열기</button>
+        {file.jobId ? (
+          <button className="danger" onClick={onDeleteHistory} disabled={disabled}>
+            이력삭제
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -671,12 +378,12 @@ function parseCategories(value: string) {
 function formatStatus(status: SourceFileItem["status"]) {
   switch (status) {
     case "processed":
-      return "처리 완료";
+      return "변환 완료";
     case "failed":
       return "실패";
     case "processing":
-      return "처리 중";
+      return "변환 중";
     default:
-      return "대기";
+      return "미변환";
   }
 }

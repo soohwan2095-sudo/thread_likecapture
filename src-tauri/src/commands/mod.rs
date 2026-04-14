@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fs, path::Path, process::Command};
 
 use base64::Engine;
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::{
     capture::scan_source_folder,
@@ -193,6 +193,16 @@ pub fn get_job_detail(
     job_id: String,
 ) -> Result<JobDetail, String> {
     state.database.get_job_detail(&job_id).map_err(to_message)
+}
+
+#[tauri::command]
+pub fn delete_job_history(state: State<'_, AppState>, job_id: String) -> Result<(), String> {
+    state.database.delete_job_history(&job_id).map_err(to_message)
+}
+
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
 }
 
 #[tauri::command]

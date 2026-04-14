@@ -66,6 +66,14 @@ export async function getJobDetail(jobId: string) {
   return invoke<JobDetail>("get_job_detail", { jobId });
 }
 
+export async function deleteJobHistory(jobId: string) {
+  return invoke<void>("delete_job_history", { jobId });
+}
+
+export async function quitApp() {
+  return invoke<void>("quit_app");
+}
+
 export async function openPath(path: string | null) {
   return invoke<void>("open_path", { path: path ?? "" });
 }

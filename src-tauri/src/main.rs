@@ -32,6 +32,8 @@ fn main() {
             commands::read_file_base64,
             commands::list_jobs,
             commands::get_job_detail,
+            commands::delete_job_history,
+            commands::quit_app,
             commands::open_path
         ])
         .run(tauri::generate_context!())

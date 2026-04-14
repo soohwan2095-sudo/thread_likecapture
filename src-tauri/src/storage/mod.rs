@@ -353,6 +353,12 @@ impl Database {
             .map_err(AppError::from)
     }
 
+    pub fn delete_job_history(&self, job_id: &str) -> Result<(), AppError> {
+        let connection = self.connection()?;
+        connection.execute("DELETE FROM jobs WHERE id = ?1", [job_id])?;
+        Ok(())
+    }
+
     pub fn create_category_folders(
         &self,
         archive_root: &str,
